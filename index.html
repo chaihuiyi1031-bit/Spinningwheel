@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>双转盘抽选</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px 18px;
+    background: radial-gradient(circle at 50% -10%, #1e293b 0%, #0b1220 55%, #060910 100%);
+    color: #e2e8f0;
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app {
+    width: 100%;
+    max-width: 1180px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 46px;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 400px;
+    max-width: 100%;
+  }
+
+  .wheel-panel {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+  }
+
+  .wheel-panel canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    box-shadow: 0 22px 50px rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .06);
+  }
+
+  .pointer {
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 15px solid transparent;
+    border-right: 15px solid transparent;
+    border-top: 38px solid #fbbf24;
+    filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .55));
+    z-index: 5;
+    pointer-events: none;
+  }
+
+  .winner {
+    margin-top: 14px;
+    height: 46px;
+    line-height: 46px;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #fbbf24;
+    text-shadow: 0 0 18px rgba(251, 191, 36, .5);
+    opacity: 0;
+    transform: translateY(10px) scale(.9);
+    transition: opacity .3s, transform .3s;
+    white-space: nowrap;
+  }
+  .winner.show { opacity: 1; transform: translateY(0) scale(1); }
+
+  /* 中间控制区 */
+  .controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    flex: 0 0 auto;
+  }
+
+  .spin-btn {
+    width: 132px;
+    height: 132px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    color: #fff;
+    background: linear-gradient(145deg, #fb7185, #e11d48 60%, #be123c);
+    box-shadow: 0 12px 34px rgba(244, 63, 94, .45),
+                inset 0 -5px 0 rgba(0, 0, 0, .22),
+                inset 0 2px 0 rgba(255, 255, 255, .3);
+    transition: transform .12s ease, box-shadow .2s, filter .25s;
+    user-select: none;
+  }
+  .spin-btn:hover:not(:disabled) { transform: scale(1.05); }
+  .spin-btn:active:not(:disabled) { transform: scale(.95); }
+  .spin-btn:disabled {
+    cursor: not-allowed;
+    filter: grayscale(.75) brightness(.65);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, .4);
+    font-size: 20px;
+  }
+
+  .remaining {
+    font-size: 15px;
+    color: #94a3b8;
+    letter-spacing: .5px;
+  }
+  .remaining b { color: #38bdf8; font-size: 19px; }
+
+  .reset-btn {
+    padding: 8px 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, .35);
+    background: rgba(148, 163, 184, .1);
+    color: #cbd5e1;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .2s, border-color .2s;
+  }
+  .reset-btn:hover { background: rgba(148, 163, 184, .22); border-color: rgba(148, 163, 184, .6); }
+
+  /* 名单编辑 */
+  .editor {
+    width: 100%;
+    max-width: 520px;
+    font-size: 14px;
+  }
+  .editor summary {
+    cursor: pointer;
+    color: #94a3b8;
+    padding: 6px 0;
+    text-align: center;
+    list-style: none;
+    user-select: none;
+  }
+  .editor summary::-webkit-details-marker { display: none; }
+  .editor summary::before { content: "▸ "; }
+  .editor[open] summary::before { content: "▾ "; }
+  .editor summary:hover { color: #cbd5e1; }
+
+  .editor textarea {
+    width: 100%;
+    margin-top: 8px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, .3);
+    background: rgba(15, 23, 42, .8);
+    color: #e2e8f0;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.7;
+    resize: vertical;
+    outline: none;
+  }
+  .editor textarea:focus { border-color: #38bdf8; }
+
+  #applyBtn {
+    margin-top: 10px;
+    width: 100%;
+    padding: 11px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #0ea5e9, #2563eb);
+    color: #fff;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: filter .2s;
+  }
+  #applyBtn:hover { filter: brightness(1.12); }
+
+  @media (max-width: 1000px) {
+    .stage { flex-direction: column; gap: 18px; }
+    .column { width: min(380px, 86vw); }
+    .controls { flex-direction: row; gap: 22px; flex-wrap: wrap; justify-content: center; }
+    .spin-btn { width: 104px; height: 104px; font-size: 22px; }
+    .winner { font-size: 22px; height: 38px; line-height: 38px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="stage">
+
+    <!-- 左转盘 -->
+    <div class="column">
+      <div class="wheel-panel">
+        <canvas id="canvas1"></canvas>
+        <div class="pointer"></div>
+      </div>
+      <div class="winner" id="winner1"></div>
+    </div>
+
+    <!-- 中间控制 -->
+    <div class="controls">
+      <button class="spin-btn" id="spinBtn">开始</button>
+      <div class="remaining">剩余 <b id="remaining">0</b> 人</div>
+      <button class="reset-btn" id="resetBtn">重置名单</button>
+    </div>
+
+    <!-- 右转盘 -->
+    <div class="column">
+      <div class="wheel-panel">
+        <canvas id="canvas2"></canvas>
+        <div class="pointer"></div>
+      </div>
+      <div class="winner" id="winner2"></div>
+    </div>
+
+  </div>
+
+  <details class="editor">
+    <summary>编辑名单</summary>
+    <textarea id="nameInput" rows="6"></textarea>
+    <button id="applyBtn">应用名单</button>
+  </details>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ============ 配置 ============ */
+  const SIZE = 400;                 // 画布逻辑尺寸
+  const SPIN_MIN_MS = 4200;         // 最短旋转时长
+  const SPIN_RANDOM_MS = 500;       // 随机附加时长
+  const REMOVE_DELAY = 1200;        // 出结果后多久移除中奖者
+  const MIN_TURNS = 5;              // 至少转几圈
+
+  const PALETTE = [
+    '#ef4444', '#f97316', '#eab308', '#22c55e',
+    '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899',
+    '#f43f5e', '#84cc16', '#06b6d4', '#a855f7'
+  ];
+
+const INITIAL_NAMES = [
+  '张苛欣', '陈长毅', '俞芷晴', '邱光奕', '陈文丽', '陈思蒨', '吴采霖', '黄传昊',
+  '黄传语', 'Chrishavelle', '陈科霓', '黄家洪', '池周晋', '黄振伦', '朱钰芯', '邵妍恩',
+  '林幸郿', '黄楀竤', '钱源迦', '刘可浩', '李 航', '林俊翔', '俞心如', '李宜庆',
+  '包承翰', '黄伟荔', '刘建辉', '刘家兴', '马利翁', '刘乔恩', '王仁轩', '谢珇菡'
+];
+
+  /* ============ 状态 ============ */
+  let names = INITIAL_NAMES.slice();
+  let rotation = [0, 0];   // 两个轮盘当前旋转弧度
+  let spinning = false;
+
+  /* ============ DOM ============ */
+  const canvas1 = document.getElementById('canvas1');
+  const canvas2 = document.getElementById('canvas2');
+  const spinBtn = document.getElementById('spinBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const applyBtn = document.getElementById('applyBtn');
+  const nameInput = document.getElementById('nameInput');
+  const remainingEl = document.getElementById('remaining');
+  const winnerEls = [
+    document.getElementById('winner1'),
+    document.getElementById('winner2')
+  ];
+
+  const ctx1 = setupCanvas(canvas1);
+  const ctx2 = setupCanvas(canvas2);
+
+  /* ============ 画布初始化 ============ */
+  function setupCanvas(canvas) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(SIZE * dpr);
+    canvas.height = Math.round(SIZE * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    return ctx;
+  }
+
+  /* ============ 绘制单个转盘 ============ */
+  function drawWheel(ctx, list, rot, highlight) {
+    const cx = SIZE / 2;
+    const cy = SIZE / 2;
+    const R = SIZE / 2 - 14;
+
+    ctx.clearRect(0, 0, SIZE, SIZE);
+
+    // 外底盘
+    ctx.beginPath();
+    ctx.arc(cx, cy, R + 9, 0, Math.PI * 2);
+    ctx.fillStyle = '#0b1220';
+    ctx.fill();
+
+    const n = list.length;
+
+    if (n === 0) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fillStyle = '#1e293b';
+      ctx.fill();
+      ctx.fillStyle = '#64748b';
+      ctx.font = 'bold 20px "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('名单为空', cx, cy);
+      return;
+    }
+
+    const step = (Math.PI * 2) / n;
+
+    // 扇形
+    for (let i = 0; i < n; i++) {
+      const a0 = -Math.PI / 2 + i * step + rot;
+      const a1 = a0 + step;
+
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, R, a0, a1);
+      ctx.closePath();
+      ctx.fillStyle = PALETTE[i % PALETTE.length];
+      ctx.fill();
+
+      if (i === highlight) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.fill();
+      }
+
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.35)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // 文字
+    const maxW = R - 52;
+    for (let i = 0; i < n; i++) {
+      const mid = -Math.PI / 2 + (i + 0.5) * step + rot;
+      const text = list[i];
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(mid);
+
+      let fs = Math.min(20, Math.max(10, 340 / n));
+      ctx.font = '700 ' + fs + 'px "PingFang SC", "Microsoft YaHei", sans-serif';
+      while (fs > 9 && ctx.measureText(text).width > maxW) {
+        fs -= 1;
+        ctx.font = '700 ' + fs + 'px "PingFang SC", "Microsoft YaHei", sans-serif';
+      }
+
+      ctx.fillStyle = '#ffffff';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetY = 1;
+
+      if (Math.cos(mid) < 0) {
+        // 左半边：翻转，避免文字倒立
+        ctx.rotate(Math.PI);
+        ctx.textAlign = 'left';
+        ctx.fillText(text, -(R - 22), 0);
+      } else {
+        ctx.textAlign = 'right';
+        ctx.fillText(text, R - 22, 0);
+      }
+
+      ctx.restore();
+    }
+
+    // 外圈描边
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#1e293b';
+    ctx.stroke();
+
+    // 中心轴
+    ctx.beginPath();
+    ctx.arc(cx, cy, 26, 0, Math.PI * 2);
+    ctx.fillStyle = '#0f172a';
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    ctx.stroke();
+  }
+
+  /* ============ 重绘两个轮盘 ============ */
+  function render(hl1, hl2) {
+    drawWheel(ctx1, names, rotation[0], hl1 === undefined ? -1 : hl1);
+    drawWheel(ctx2, names, rotation[1], hl2 === undefined ? -1 : hl2);
+  }
+
+  /* ============ 计算目标角度 ============ */
+  // 让 index 号扇形正好停在顶部指针下方
+  function computeTarget(current, index, step) {
+    const TAU = Math.PI * 2;
+    let desired = -(index * step + step / 2);
+    desired = ((desired % TAU) + TAU) % TAU;
+
+    let target = desired;
+    while (target < current + TAU * MIN_TURNS) target += TAU;
+    return target;
+  }
+
+  function easeOutQuart(p) {
+    return 1 - Math.pow(1 - p, 4);
+  }
+
+  /* ============ 开始旋转 ============ */
+  function spin() {
+    if (spinning || names.length < 2) return;
+
+    spinning = true;
+    spinBtn.disabled = true;
+    spinBtn.textContent = '转动中';
+    clearWinners();
+
+    const n = names.length;
+    const step = (Math.PI * 2) / n;
+
+    // 随机选两个不同的人（保证不重复）
+    const i1 = Math.floor(Math.random() * n);
+    let i2 = Math.floor(Math.random() * (n - 1));
+    if (i2 >= i1) i2 += 1;
+
+    const from1 = rotation[0];
+    const from2 = rotation[1];
+    const to1 = computeTarget(from1, i1, step);
+    const to2 = computeTarget(from2, i2, step);
+
+    const dur1 = SPIN_MIN_MS + Math.random() * SPIN_RANDOM_MS;
+    const dur2 = SPIN_MIN_MS + Math.random() * SPIN_RANDOM_MS;
+    const t0 = performance.now();
+
+    function frame(now) {
+      const p1 = Math.min(1, (now - t0) / dur1);
+      const p2 = Math.min(1, (now - t0) / dur2);
+
+      rotation[0] = from1 + (to1 - from1) * easeOutQuart(p1);
+      rotation[1] = from2 + (to2 - from2) * easeOutQuart(p2);
+
+      render();
+
+      if (p1 < 1 || p2 < 1) {
+        requestAnimationFrame(frame);
+      } else {
+        rotation[0] = to1;
+        rotation[1] = to2;
+        render(i1, i2);
+        finish(i1, i2);
+      }
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  /* ============ 结算 ============ */
+  function finish(i1, i2) {
+    const w1 = names[i1];
+    const w2 = names[i2];
+
+    winnerEls[0].textContent = w1;
+    winnerEls[1].textContent = w2;
+    winnerEls[0].classList.add('show');
+    winnerEls[1].classList.add('show');
+
+    setTimeout(function () {
+      // 按索引移除，避免同名误删
+      names = names.filter(function (_, idx) {
+        return idx !== i1 && idx !== i2;
+      });
+
+      spinning = false;
+      updateUI();
+      render();
+    }, REMOVE_DELAY);
+  }
+
+  function clearWinners() {
+    winnerEls.forEach(function (el) {
+      el.classList.remove('show');
+      el.textContent = '';
+    });
+  }
+
+  /* ============ UI 更新 ============ */
+  function updateUI() {
+    remainingEl.textContent = names.length;
+    if (spinning) {
+      spinBtn.disabled = true;
+      spinBtn.textContent = '转动中';
+    } else if (names.length < 2) {
+      spinBtn.disabled = true;
+      spinBtn.textContent = '人数不足';
+    } else {
+      spinBtn.disabled = false;
+      spinBtn.textContent = '开始';
+    }
+  }
+
+  /* ============ 事件绑定 ============ */
+  spinBtn.addEventListener('click', spin);
+
+  resetBtn.addEventListener('click', function () {
+    if (spinning) return;
+    names = INITIAL_NAMES.slice();
+    rotation = [0, 0];
+    nameInput.value = INITIAL_NAMES.join('\n');
+    clearWinners();
+    updateUI();
+    render();
+  });
+
+  applyBtn.addEventListener('click', function () {
+    if (spinning) return;
+
+    const list = nameInput.value
+      .split(/[\n,，、;；]+/)
+      .map(function (s) { return s.trim(); })
+      .filter(Boolean);
+
+    const unique = [];
+    list.forEach(function (v) {
+      if (unique.indexOf(v) === -1) unique.push(v);
+    });
+
+    if (unique.length < 2) {
+      alert('至少需要 2 个不重复的名字');
+      return;
+    }
+
+    names = unique;
+    rotation = [0, 0];
+    clearWinners();
+    updateUI();
+    render();
+  });
+
+  /* ============ 启动 ============ */
+  nameInput.value = INITIAL_NAMES.join('\n');
+  updateUI();
+  render();
+
+})();
+</script>
+</body>
+</html>
